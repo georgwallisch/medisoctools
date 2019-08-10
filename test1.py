@@ -39,6 +39,8 @@ def main():
 				  help='List all customers without any order within a defined time range')
 		argp.add_argument('--list-active', action="store_true",
 				  help='List all active customers')
+		argp.add_argument('--list-without-recall', action="store_true",
+				  help='List all active customers')
 		argp.add_argument('--set-inactive', action="store_true",
 				  help='Set all selected customers inactive')
 		argp.add_argument('--within-years', type=int, default=2,
@@ -83,7 +85,20 @@ def main():
 			
 			if args.list_active:
 				for c in ms.customers:
-					print(u"{:>4} {}, {} ({})".format(c[0], c[1], c[2], c[3])) 
+					print(u"{:>4} {}, {} ({})".format(c[0], c[1], c[2], c[3]))
+			elif args.list_without_recall:
+				print(u"Suche Kunden ohne Recall-Flag..")
+				cnt = 0
+				for c in ms.customers:
+					c_form = ms.get_customer_data(c[0])
+					c_data = c_form['data']
+					if 'nachsorgerecall' in c_data:
+						if c_data['nachsorgerecall']:
+							# Wenn Flag gesetzt, heißt Nachsorge-Mailings deaktiviert
+							print(u"{:>4} {}, {} ({})".format(c[0], c[1], c[2], c[3]))
+							cnt += 1
+				print(u"Es gibt {} Kunden ohne Recall-Flag.".format(cnt))
+					
 			elif args.list_without_order:
 				print(u"Suche Kunden ohne Bestellung innerhalb von {} Jahren..".format(args.within_years))
 				if args.set_inactive:
