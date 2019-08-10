@@ -37,6 +37,8 @@ def main():
 				  help='Config file to use instead of standard medisoc.cfg')
 		argp.add_argument('--list-without-order', action="store_true",
 				  help='List all customers without any order within a defined time range')
+		argp.add_argument('--list-active', action="store_true",
+				  help='List all active customers')
 		argp.add_argument('--set-inactive', action="store_true",
 				  help='Set all selected customers inactive')
 		argp.add_argument('--within-years', type=int, default=2,
@@ -79,7 +81,10 @@ def main():
 			ms.get_customers()
 			print(u"Es wurden {} Kunden gefunden".format(len(ms.customers)))
 			
-			if args.list_without_order:
+			if args.list_active:
+				for c in ms.customers:
+					print(u"{:>4} {}, {} ({})".format(c[0], c[1], c[2], c[3])) 
+			elif args.list_without_order:
 				print(u"Suche Kunden ohne Bestellung innerhalb von {} Jahren..".format(args.within_years))
 				if args.set_inactive:
 					print(u"\n*** Setze diese jetzt auf inaktiv! ***\n")
