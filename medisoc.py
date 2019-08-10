@@ -11,7 +11,7 @@ __email__ =  "gw@phpco.de"
 __license__ = "open source software"
 __maintainer__ = "Georg Wallisch"
 __status__ = "alpha"
-__version__ = "0.1"
+__version__ = "0.2"
 
 import requests
 import re
@@ -80,6 +80,26 @@ class MedisocAccount:
 		else:
 			self._log.error("Page does not exist!")
 			return None
+	
+	def post_xhr(self, uri, payload, referrer = None):			
+		hosturl = self.get_hosturl(uri)
+		self._log.debug("Posting XHR Request {}".format(hosturl))
+		
+		if referrer is None:
+			referrer = hosturl
+			
+		headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:68.0) Gecko/20100101 Firefox/68.0',
+           'X-Requested-With': 'XMLHttpRequest',
+           'Host': self.host,
+           'Referer': referrer}
+		
+		r = self.session.post(hosturl, headers=headers, data=payload)
+		if r:
+			return r
+		else:
+			self._log.error("Post Request not successful!")
+			return None
+
 			
 	def get_customers(self):
 		t = TableParser()
@@ -98,9 +118,10 @@ class MedisocAccount:
 		self.customers = t.content
 		self.customers_header = t.header
 	
-	def get_customer_history(self, pnr):
-		self._log.info("Getting Customer info for PNR {}".format(pnr))
+	def get_customer_history(self, pnr, include_current_orders = True):
+		self._log.info("Getting Customer product history for PNR {}".format(pnr))
 		t = TableParser()
+		
 		next_uri = "/patient/altmass/?pnr={}".format(pnr)
 		i = 0
 		while(next_uri is not None):
@@ -114,8 +135,51 @@ class MedisocAccount:
 				t.feed(r.text)
 				p.feed(r.text)
 			next_uri = p.next_uri
+			
+		if include_current_orders:
+			self._log.info("Getting current orders of Customer PNR {}".format(pnr))
+			next_uri = "/patient/altmass/?pnr={}&show=offen".format(pnr)
+			i = 0
+			while(next_uri is not None):
+				i += 1
+				self._log.info("Reading Page {}".format(i))
+				p = PaginationParser()
+				r = self.get_xhrpage(next_uri,'/startseite/massbestellung/')
+				
+				if r:
+					t.header_firstline = True
+					t.feed(r.text)
+					p.feed(r.text)
+				next_uri = p.next_uri
+						
 		return t.content
-	 
+	
+	def get_customer_data(self, pnr):
+		self._log.info("Getting Customer data for PNR {}".format(pnr))
+
+		r = self.get_xhrpage("/patient/?pnr={}".format(pnr))
+		f = FormParser()
+		f.feed(r.text)
+		d = {'attrs':f.form_attrs, 'data':f.form_data}
+		return d
+		
+	def set_customer_data(self, pnr, data):
+		self._log.info("Setting Customer data for PNR {}".format(pnr))
+		r = self.post_xhr("/patient/?pnr={}&save=true".format(pnr), data, "/patient/?pnr={}".format(pnr))
+		return r
+		
+	def set_customer_inactive(self, pnr, info=None):
+		c = self.get_customer_data(pnr)
+		data = c['data']
+		if 'active' in data:
+			data.pop('active')
+		if info is not None:
+			if 'patienteninfo' in data and data['patienteninfo'] != "":
+				data['patienteninfo'] += "\n" + info
+			else:
+				data['patienteninfo'] = info
+		r = self.set_customer_data(pnr, data)
+		return r	 
 		
 class TableParser(HTMLParser.HTMLParser):
 	def __init__(self):
@@ -183,3 +247,65 @@ class PaginationParser(HTMLParser.HTMLParser):
 	def handle_endtag(self, tag):
 		if self.div_next and tag == 'div':
 			self.div_next = False	
+
+class FormParser(HTMLParser.HTMLParser):
+	def __init__(self):
+		HTMLParser.HTMLParser.__init__(self)
+		self.in_form = False
+		self.in_textarea = False
+		self.in_select = False
+		self.form_attrs = None
+		self.form_data = {}
+		self.textarea_attrs = None
+		self.select_attrs = None
+
+	
+	def parse_attrs(self, attrs):
+		data = {}
+		for attr in attrs:
+			data[attr[0]] = attr[1]
+		return data
+		     
+	def handle_starttag(self, tag, attrs):
+		
+		data = self.parse_attrs(attrs)
+		if self.in_form:
+			if tag == 'textarea':
+				self.in_textarea = True
+				self.textarea_attrs = data
+			elif tag == 'select':
+				self.in_select = True
+				self.select_attrs = data
+			elif tag == 'option':
+				if 'selected' in data:
+					if 'name' in data and 'value' in data:
+						self.form_data[data['name']] = data['value']				
+			elif tag == 'input':
+				if data['type'] == 'text':
+					if 'name' in data and 'value' in data:
+						self.form_data[data['name']] = data['value']
+				elif data['type'] == 'checkbox':
+					if 'checked' in data:
+						if 'name' in data and 'value' in data:
+							self.form_data[data['name']] = data['value']
+					else:
+						if 'name' in data:
+							self.form_data[data['name']] = ''					
+		else:
+			if tag == 'form':
+				self.in_form = True
+				self.form_attrs = data	
+					
+	def handle_data(self, data):
+		d = data.strip(" \n\r\t")
+		if self.in_textarea:
+			self.form_data[self.textarea_attrs['name']] = d
+				
+					
+	def handle_endtag(self, tag):
+		if tag == 'form':
+			self.in_form = False
+		elif tag == 'textarea':
+			self.in_textarea = False
+		elif tag == 'select':
+			self.in_select = False		
